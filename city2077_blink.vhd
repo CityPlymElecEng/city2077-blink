@@ -17,8 +17,6 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use work.dw.all;
 use work.dw2.all;
-use work.CHAR2STD.all;
-
 
 entity city2077_blink is
 
@@ -47,8 +45,8 @@ entity city2077_blink is
 end entity;
 
 
-architecture rtl of city2077_blink is
-  -- Define constants for readability
+architecture behavioral of city2077_blink is
+  -- Define constants
   constant ASCII_OFFSET        : std_logic_vector(7 downto 0) := "00110000";  -- ASCII for '0'
   constant BLOCK_FULL          : std_logic_vector(7 downto 0) := "10000000";
   constant BLOCK_MISSING_LAST  : std_logic_vector(7 downto 0) := "10000001";
@@ -65,9 +63,9 @@ architecture rtl of city2077_blink is
   constant PLAYER2_WIN_I_ASCII : std_logic_vector(7 downto 0) := "01001001";  -- ASCII for 'I'
   constant PLAYER2_WIN_N_ASCII : std_logic_vector(7 downto 0) := "01001110";  -- ASCII for 'N'
   constant SPACE_ASCII         : std_logic_vector(7 downto 0) := "00100000";  -- ASCII for ' '
-  constant clk_frequency_hz    : integer                      := 50000000;  -- 50 MHz main clock
-  constant pwm_frequency_hz    : integer                      := 20000;  -- 20 KHz
-  constant sound_addr_width    : integer                      := 4;  -- 16 different tunes/samples
+  constant CLK_FREQUENCY_HZ    : integer                      := 50000000;  -- 50 MHz main clock
+  constant PWM_FREQUENCY_HZ    : integer                      := 20000;  -- 20 KHz
+  constant SOUND_ADDR_WIDTH    : integer                      := 4;  -- 16 different tunes/samples
 
 
   component counter is
@@ -251,8 +249,8 @@ architecture rtl of city2077_blink is
   signal paddle1pos   : integer range 0 to 650 := 320;
   signal paddle1sz    : integer range 0 to 100 := 40;
   signal player1scr   : integer                := 0;
-  signal scoreAdded   : integer := 0;
-  signal acknowledged : std_logic := '0';
+  signal scoreAdded   : integer                := 0;
+  signal acknowledged : std_logic              := '0';
   signal paddlein2pos : integer range 0 to 650 := 320;
   signal paddle2pos   : integer range 0 to 650 := 320;
   signal paddle2sz    : integer range 0 to 100 := 40;
@@ -1100,8 +1098,7 @@ begin
         RGB_B <= x"f";
 
       -- Draw the Ball
-      elsif drawbl = '1' then  --((Xpi > ballX-(ballSize/2)) and (Xpi < ballX+(ballSize/2)) and
-        -- (Ypi > ballY-(ballSize/2)) and (Ypi < ballY+(ballSize/2))) then
+      elsif drawbl = '1' then 
         RGB_R <= x"f";
         RGB_G <= x"f";
         RGB_B <= x"0";
@@ -1198,9 +1195,9 @@ begin
         bang <= '0';
       end if;
       if scoreAdded > 0 and acknowledged = '0' then
-        player1scr <= player1scr + scoreAdded;
+        player1scr   <= player1scr + scoreAdded;
         acknowledged <= '1';
-        scoreAdded <= 0;
+        scoreAdded   <= 0;
       else acknowledged <= '0';
       end if;
       if served = '0' and WaitingForServe = '1' then
@@ -1218,33 +1215,28 @@ begin
 
       else
         waitingForServe <= '0';
-        scoreAdded <= 0;
+        scoreAdded      <= 0;
         ballx           <= ballx + ballXDir*ballspeed;
         bally           <= bally + BallYDir*ballspeed;
-        -- which block is ball hitting?
---        blockHit        <= (((ballY - 96 - ballydir * 12 + ballydir*scalebl*6) / 24) * 10) + (ballX/64);  -- Block 0 at 120, 0 and ten blocks (24 x 64) per row
---        blockHit        <= (((ballY - 96) / 24) * 10) + (ballX/64);  -- Block 0 at 120, 0 and ten blocks (24 x 64) per row
-        -- AI player control
-        -- paddle1pos <= ballx;
         case bally is
           when 0 to 60 =>
             -- ball hits top edge
-            ballYdir <= 1;              --abs (ballydir);
+            ballYdir <= abs (ballydir); -- positive for down the screen
             bally    <= 60 + scalebl*2;
 
 
           when 96 to 192 =>
             if blockPresent(blockHit) = '1' and blockHit >= 0 then
               blockPresent(blockHit) <= '0';
-              if acknowledged = '0' then
-                scoreAdded             <= 8 - (bally) / 24;
+              if acknowledged = '0' then -- only add the score once per block
+                scoreAdded <= 8 - (bally + ballydir) / 24;  -- adjust Y for
+                                                            -- moving ball
               else
                 scoreAdded <= 0;
               end if;
-              tilesHit               <= tilesHit + 1;
+              tilesHit <= tilesHit + 1;
               if tilesHit = 39 then
                 tilesHit        <= 0;
-                --blockHit        <= -5;
                 newTiles        <= '1';
                 blop            <= '1';
                 bally           <= 220;
@@ -1305,6 +1297,7 @@ begin
           when 460 - scalebl*3 to 470 - scalebl*3 =>  -- line of paddle vertically
 
             -- player 1 paddle hit
+            -- different x speed depending on where ball strikes paddle
 
             if ballx > paddle1pos - paddle1sz and ballx < (paddle1pos - 3*(paddle1sz) /4)then
               ballxdir <= -2;
@@ -1331,7 +1324,7 @@ begin
               blip     <= '1';
               bally    <= bally - 1;
             else
-              ballxdir <= ballxdir;     -- paddle missed
+              ballxdir <= ballxdir;     -- paddle missed - no changes until sure
             end if;
 
           when 475 to 479 =>
@@ -1368,9 +1361,11 @@ begin
         paddle1pos <= ballx + 30 - player1scr mod 60;
       else
         -- player controlled paddles
-        if paddleSel = '1' then
-          if (adcCycle = 0) then  -- adcCycle allows time for conversions to complete
-            paddlein1pos <= (to_integer(unsigned(paddlepos1(11 downto 3))));
+        if paddleSel = '1' then -- use adc to get position
+          if (adcCycle = 0) then  -- adcCycle allows time for conversions to
+                                  -- complete -- range is 0 to 1024 - top 10
+                                  --  bits of the 12 bits available
+            paddlein1pos <= (to_integer(unsigned(paddlepos1(11 downto 2))));
             adcCycle     <= 1;
             -- ledr(9)      <= '1';
 
@@ -1384,15 +1379,10 @@ begin
               paddle1pos <= paddlein1pos;
             end if;
           end if;
-        else
+        else -- paddle position from quadrature encoder
           paddle1Pos <= position1 * 4 mod 640;
-
         end if;
       end if;
-
-      --debugmsb <= std_logic_vector(to_unsigned(paddle2pos / 10, 8));
-      --debuglsb <= std_logic_vector(to_unsigned(paddle2pos mod 10, 8));
-
     end if;
   end process;
 
@@ -1455,7 +1445,7 @@ begin
   ledState <= state(1);
   LEDR(0)  <= ledState;
   ledr(1)  <= not player1wins;
-  ledr(2)  <= not player2wins;
+--  ledr(2)  <= not player2wins;
+  ledr(3) <= encoder1(2);  -- button press on encoder
 
-  ledr(3) <= encoder1(2);
-end rtl;
+end behavioral;
